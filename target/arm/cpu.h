@@ -203,6 +203,13 @@ typedef struct ARMMMUFaultInfo ARMMMUFaultInfo;
 typedef struct NVICState NVICState;
 
 typedef struct CPUArchState {
+#ifdef CONFIG_CANNOLI
+    /* Storage for Cannoli's internal register state */
+    uint64_t cannoli_r12;
+    uint64_t cannoli_r13;
+    uint64_t cannoli_r14;
+#endif
+
     /* Regs for current mode.  */
     uint32_t regs[16];
 

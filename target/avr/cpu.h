@@ -105,6 +105,13 @@ typedef enum AVRFeature {
 } AVRFeature;
 
 typedef struct CPUArchState {
+#ifdef CONFIG_CANNOLI
+    /* Storage for Cannoli's internal register state */
+    uint64_t cannoli_r12;
+    uint64_t cannoli_r13;
+    uint64_t cannoli_r14;
+#endif
+
     uint32_t pc_w; /* 0x003fffff up to 22 bits */
 
     uint32_t sregC; /* 0x00000001 1 bit */

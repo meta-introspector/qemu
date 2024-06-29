@@ -38,6 +38,12 @@
 /* target_siginfo_t must fit in gdbstub's siginfo save area. */
 QEMU_BUILD_BUG_ON(sizeof(target_siginfo_t) > MAX_SIGINFO_LENGTH);
 
+#ifdef CONFIG_LINUX_USER
+#ifdef CONFIG_CANNOLI
+#include "tcg/tcg.h"
+#endif /* CONFIG_CANNOLI */
+#endif /* CONFIG_LINUX_USER */
+
 static struct target_sigaction sigact_table[TARGET_NSIG];
 
 static void host_signal_handler(int host_signum, siginfo_t *info,
@@ -965,31 +971,78 @@ static void host_signal_handler(int host_sig, siginfo_t *info, void *puc)
     bool sync_sig = false;
     void *sigmask;
 
+#ifdef CANNOLI
+    /* Save the register state in the cannoli C state */
+    env->cannoli_r12 = uc->uc_mcontext.gregs[REG_R12];
+    env->cannoli_r13 = uc->uc_mcontext.gregs[REG_R13];
+    env->cannoli_r14 = uc->uc_mcontext.gregs[REG_R14];
+#endif
+
     /*
      * Non-spoofed SIGSEGV and SIGBUS are synchronous, and need special
      * handling wrt signal blocking and unwinding.  Non-spoofed SIGILL,
      * SIGFPE, SIGTRAP are always host bugs.
      */
-    if (info->si_code > 0) {
-        switch (host_sig) {
-        case SIGSEGV:
-            /* Only returns on handle_sigsegv_accerr_write success. */
-            host_sigsegv_handler(cpu, info, uc);
-            return;
-        case SIGBUS:
-            pc = host_sigbus_handler(cpu, info, uc);
-            sync_sig = true;
-            break;
-        case SIGILL:
-        case SIGFPE:
-        case SIGTRAP:
-            die_from_signal(info);
+    if ((host_sig == SIGSEGV || host_sig == SIGBUS) && info->si_code > 0) {
+        MMUAccessType access_type;
+        uintptr_t host_addr;
+        abi_ptr guest_addr;
+        bool is_write;
+
+        host_addr = (uintptr_t)info->si_addr;
+
+        /*
+         * Convert forcefully to guest address space: addresses outside
+         * reserved_va are still valid to report via SEGV_MAPERR.
+         */
+        guest_addr = h2g_nocheck(host_addr);
+
+        pc = host_signal_pc(uc);
+        is_write = host_signal_write(info, uc);
+        access_type = adjust_signal_pc(&pc, is_write);
+
+        if (host_sig == SIGSEGV) {
+            bool maperr = true;
+
+            if (info->si_code == SEGV_ACCERR && h2g_valid(host_addr)) {
+                /* If this was a write to a TB protected page, restart. */
+                if (is_write &&
+                    handle_sigsegv_accerr_write(cpu, sigmask, pc, guest_addr)) {
+#ifdef CANNOLI
+                    /* Re-poison cannoli */
+                    env->cannoli_r12 = CANNOLI_POISON;
+#endif
+                    return;
+                }
+
+                /*
+                 * With reserved_va, the whole address space is PROT_NONE,
+                 * which means that we may get ACCERR when we want MAPERR.
+                 */
+                if (page_get_flags(guest_addr) & PAGE_VALID) {
+                    maperr = false;
+                } else {
+                    info->si_code = SEGV_MAPERR;
+                }
+            }
+
+            sigprocmask(SIG_SETMASK, sigmask, NULL);
+            cpu_loop_exit_sigsegv(cpu, guest_addr, access_type, maperr, pc);
+        } else {
+            sigprocmask(SIG_SETMASK, sigmask, NULL);
+            if (info->si_code == BUS_ADRALN) {
+                cpu_loop_exit_sigbus(cpu, guest_addr, access_type, pc);
+            }
         }
     }
 
     /* get target signal number */
     guest_sig = host_to_target_signal(host_sig);
     if (guest_sig < 1 || guest_sig > TARGET_NSIG) {
+#ifdef CANNOLI
+        /* Re-poison cannoli */
+        env->cannoli_r12 = CANNOLI_POISON;
+#endif
         return;
     }
     trace_user_host_signal(env, host_sig, guest_sig);
@@ -1032,6 +1085,11 @@ static void host_signal_handler(int host_sig, siginfo_t *info, void *puc)
 
     /* interrupt the virtual CPU as soon as possible */
     cpu_exit(thread_cpu);
+
+#ifdef CANNOLI
+    /* Re-poison cannoli */
+    env->cannoli_r12 = CANNOLI_POISON;
+#endif
 }
 
 /* do_sigaltstack() returns target values and errnos. */

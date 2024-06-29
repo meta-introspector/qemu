@@ -27,6 +27,13 @@
 #include "tricore-defs.h"
 
 typedef struct CPUArchState {
+#ifdef CONFIG_CANNOLI
+    /* Storage for Cannoli's internal register state */
+    uint64_t cannoli_r12;
+    uint64_t cannoli_r13;
+    uint64_t cannoli_r14;
+#endif
+
     /* GPR Register */
     uint32_t gpr_a[16];
     uint32_t gpr_d[16];
@@ -54,6 +61,10 @@ typedef struct CPUArchState {
 
     /* Internal CPU feature flags.  */
     uint64_t features;
+
+    const tricore_def_t *cpu_model;
+    void *irq[8];
+    struct QEMUTimer *timer; /* Internal timer */
 } CPUTriCoreState;
 
 /**

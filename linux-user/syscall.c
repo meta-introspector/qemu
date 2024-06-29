@@ -13792,5 +13792,21 @@ abi_long do_syscall(CPUArchState *cpu_env, int num, abi_long arg1,
     }
 
     record_syscall_return(cpu, num, ret);
+
+#ifdef CONFIG_CANNOLI
+    if(cannoli && cannoli->syscall) {
+        uint64_t data[8];
+        data[0] = (uint64_t) arg1;
+        data[1] = (uint64_t) arg2;
+        data[2] = (uint64_t) arg3;
+        data[3] = (uint64_t) arg4;
+        data[4] = (uint64_t) arg5;
+        data[5] = (uint64_t) arg6;
+        data[6] = (uint64_t) arg7;
+        data[7] = (uint64_t) arg8;
+        cannoli->syscall(num, (uint64_t) ret, data, 8, (uint64_t) guest_base);
+    }
+#endif
+
     return ret;
 }

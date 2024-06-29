@@ -453,6 +453,11 @@ cpu_tb_exec(CPUState *cpu, TranslationBlock *itb, int *tb_exit)
     TranslationBlock *last_tb;
     const void *tb_ptr = itb->tc.ptr;
 
+#ifdef CANNOLI
+    /* Poison the cannoli state before entering the JIT */
+    env->cannoli_r12 = CANNOLI_POISON;
+#endif
+
     if (qemu_loglevel_mask(CPU_LOG_TB_CPU | CPU_LOG_EXEC)) {
         log_cpu_exec(log_pc(cpu, itb), cpu, itb);
     }

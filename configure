@@ -248,6 +248,7 @@ bsd_user=""
 plugins="$default_feature"
 subdirs=""
 ninja=""
+cannoli=""
 python=
 download="enabled"
 skip_meson=no
@@ -741,6 +742,8 @@ for opt do
   ;;
   --disable-cfi) cfi=false
   ;;
+  --with-cannoli=*) cannoli="$optarg"
+  ;;
   --disable-download) download="disabled"; git_submodules_action=validate;
   ;;
   --enable-download) download="enabled"; git_submodules_action=update;
@@ -876,6 +879,9 @@ Advanced options (experts only):
   --with-devices-ARCH=NAME override default configs/devices
   --enable-debug           enable common debug build options
   --cpu=CPU                Build for host CPU [$cpu]
+  --with-cannoli=/path/to/cannoli Build with fast Cannoli tracing support
+  --enable-plugins
+                           enable plugins via shared library loading
   --disable-containers     don't use containers for cross-building
   --container-engine=TYPE  which container engine to use [$container_engine]
   --gdb=GDB-path           gdb to use for gdbstub tests [$gdb_bin]
@@ -1599,7 +1605,31 @@ echo all: >> $config_host_mak
 
 echo "SRC_PATH=$source_path" >> $config_host_mak
 echo "TARGET_DIRS=$target_list" >> $config_host_mak
-echo "GDB=$gdb_bin" >> $config_host_mak
+
+# XXX: suppress that
+if [ "$bsd" = "yes" ] ; then
+  echo "CONFIG_BSD=y" >> $config_host_mak
+fi
+
+if [ -n "$cannoli" ] ; then
+    echo "CONFIG_CANNOLI=y" >> $config_host_mak
+    CFLAGS="-I$cannoli $CFLAGS"
+fi
+
+if test "$plugins" = "yes" ; then
+    echo "CONFIG_PLUGIN=y" >> $config_host_mak
+fi
+
+if test -n "$gdb_bin"; then
+    gdb_version=$($gdb_bin --version | head -n 1)
+    if version_ge ${gdb_version##* } 9.1; then
+        echo "HAVE_GDB_BIN=$gdb_bin" >> $config_host_mak
+        gdb_arches=$($python "$source_path/scripts/probe-gdb-support.py" $gdb_bin)
+    else
+        gdb_bin=""
+    fi
+fi
+
 if test "$container" != no; then
     echo "RUNC=$runc" >> $config_host_mak
 fi

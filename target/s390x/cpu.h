@@ -52,7 +52,14 @@ typedef struct PSW {
     uint64_t addr;
 } PSW;
 
-typedef struct CPUArchState {
+struct CPUArchState {
+#ifdef CONFIG_CANNOLI
+    /* Storage for Cannoli's internal register state */
+    uint64_t cannoli_r12;
+    uint64_t cannoli_r13;
+    uint64_t cannoli_r14;
+#endif
+
     uint64_t regs[16];     /* GP registers */
     /*
      * The floating point registers are part of the vector registers.
@@ -155,6 +162,7 @@ typedef struct CPUArchState {
     uint8_t sigp_order;
 
 } CPUS390XState;
+
 
 static inline uint64_t *get_freg(CPUS390XState *cs, int nr)
 {

@@ -31,6 +31,11 @@
 #include "target/arm/cpu-features.h"
 #endif
 
+#ifdef CONFIG_CANNOLI
+/* Pull in TCG header that has cannoli */
+#include "tcg/tcg.h"
+#endif
+
 static pthread_mutex_t mmap_mutex = PTHREAD_MUTEX_INITIALIZER;
 static __thread int mmap_lock_count;
 
@@ -539,7 +544,30 @@ static abi_long mmap_end(abi_ulong start, abi_ulong last,
             page_set_flags(passthrough_last + 1, last, page_flags);
         }
     }
-    shm_region_rm_complete(start, last);
+ the_end:
+#ifdef CONFIG_CANNOLI
+    if(cannoli && cannoli->mmap) {
+        /* Report when mmap() occurs successfully */
+
+        /* Resolve the path for this FD if this is a non-anon mapping */
+        char *pth = NULL;
+        if(!(flags & MAP_ANONYMOUS)) {
+            char buf[64];
+            sprintf(buf, "/proc/%d/fd/%d", getpid(), fd);
+            pth = realpath(buf, NULL);
+        }
+
+        cannoli->mmap(start, len, (flags & MAP_ANONYMOUS) != 0,
+            (target_prot & PROT_READ) != 0, (target_prot & PROT_WRITE) != 0,
+            (target_prot & PROT_EXEC) != 0, pth, offset);
+
+        /* Free the path */
+        if(pth) {
+            free(pth);
+        }
+    }
+#endif
+
     trace_target_mmap_complete(start);
     if (qemu_loglevel_mask(CPU_LOG_PAGE)) {
         FILE *f = qemu_log_trylock();
@@ -1032,6 +1060,13 @@ int target_munmap(abi_ulong start, abi_ulong len)
     int ret;
 
     trace_target_munmap(start, len);
+
+#ifdef CONFIG_CANNOLI
+    if(cannoli && cannoli->munmap) {
+        /* Report when we try to unmap memory */
+        cannoli->munmap(start, len);
+    }
+#endif
 
     if (start & ~TARGET_PAGE_MASK) {
         errno = EINVAL;

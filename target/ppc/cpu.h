@@ -1229,6 +1229,13 @@ struct pnv_tod_tbst {
 #define BHRB_MAX_NUM_ENTRIES      (1 << BHRB_MAX_NUM_ENTRIES_LOG2)
 
 struct CPUArchState {
+#ifdef CONFIG_CANNOLI
+    /* Storage for Cannoli's internal register state */
+    uint64_t cannoli_r12;
+    uint64_t cannoli_r13;
+    uint64_t cannoli_r14;
+#endif
+
     /* Most commonly used resources during translated code execution first */
     target_ulong gpr[32];  /* general purpose registers */
     target_ulong gprh[32]; /* storage for GPR MSB, used by the SPE extension */

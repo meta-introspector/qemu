@@ -201,8 +201,15 @@ typedef struct HPPATLBEntry {
 } HPPATLBEntry;
 
 typedef struct CPUArchState {
-    target_ulong iaoq_f;     /* front */
-    target_ulong iaoq_b;     /* back, aka next instruction */
+#ifdef CONFIG_CANNOLI
+    /* Storage for Cannoli's internal register state */
+    uint64_t cannoli_r12;
+    uint64_t cannoli_r13;
+    uint64_t cannoli_r14;
+#endif
+
+    target_ureg iaoq_f;      /* front */
+    target_ureg iaoq_b;      /* back, aka next instruction */
 
     target_ulong gr[32];
     uint64_t fr[32];

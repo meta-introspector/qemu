@@ -26,6 +26,11 @@
 #include "exec/cpu_ldst.h"
 #include "cpregs.h"
 
+#ifdef CANNOLI
+#include "jitter/ffi/cannoli.h"
+extern Cannoli* cannoli;
+#endif
+
 #define SIGNBIT (uint32_t)0x80000000
 #define SIGNBIT64 ((uint64_t)1 << 63)
 
@@ -63,6 +68,17 @@ void raise_exception(CPUARMState *env, uint32_t excp,
     }
 
     assert(!excp_is_internal(excp));
+#ifdef CANNOLI
+    if (cannoli && cannoli->jit_entry && cannoli->jit_drop &&
+            env->cannoli_r12 == CANNOLI_POISON) {
+        cannoli->jit_drop();
+        size_t s[3];
+        cannoli->jit_entry(s);
+        env->cannoli_r12 = s[0];
+        env->cannoli_r13 = s[1];
+        env->cannoli_r14 = s[2];
+    }
+#endif
     cs->exception_index = excp;
     env->exception.syndrome = syndrome;
     env->exception.target_el = target_el;

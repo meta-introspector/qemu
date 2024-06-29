@@ -526,6 +526,13 @@ struct TCState {
 
 struct MIPSITUState;
 typedef struct CPUArchState {
+#ifdef CONFIG_CANNOLI
+    /* Storage for Cannoli's internal register state */
+    uint64_t cannoli_r12;
+    uint64_t cannoli_r13;
+    uint64_t cannoli_r14;
+#endif
+
     TCState active_tc;
     CPUMIPSFPUContext active_fpu;
 
@@ -1192,6 +1199,7 @@ typedef struct CPUArchState {
     QEMUTimer *timer; /* Internal timer */
     Clock *count_clock; /* CP0_Count clock */
     target_ulong exception_base; /* ExceptionBase input to the core */
+    uint64_t cp0_count_ns; /* CP0_Count clock period (in nanoseconds) */
 } CPUMIPSState;
 
 /**

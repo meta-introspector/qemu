@@ -240,6 +240,13 @@ typedef struct CPUArchState CPUMBState;
 #define USE_NON_SECURE_M_AXI_IC_MASK 0x8
 
 struct CPUArchState {
+#ifdef CONFIG_CANNOLI
+    /* Storage for Cannoli's internal register state */
+    uint64_t cannoli_r12;
+    uint64_t cannoli_r13;
+    uint64_t cannoli_r14;
+#endif
+
     uint32_t bvalue;   /* TCG temporary, only valid during a TB */
     uint32_t btarget;  /* Full resolved branch destination */
 

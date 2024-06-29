@@ -62,6 +62,13 @@
 #include "semihosting/semihost.h"
 #endif
 
+#ifdef CANNOLI
+/*
+ * Cannoli is dynamically loaded, thus, we gotta pull in dynamic headers!
+ */
+#include <dlfcn.h>
+#endif /* CANNOLI */
+
 #ifndef AT_FLAGS_PRESERVE_ARGV0
 #define AT_FLAGS_PRESERVE_ARGV0_BIT 0
 #define AT_FLAGS_PRESERVE_ARGV0 (1 << AT_FLAGS_PRESERVE_ARGV0_BIT)
@@ -94,6 +101,13 @@ static bool enable_strace;
  */
 static int last_log_mask;
 static const char *last_log_filename;
+
+#ifdef CANNOLI
+/*
+ * Pointer to bindings registered by `query_version` in Cannoli
+ */
+Cannoli *cannoli;
+#endif /* CANNOLI */
 
 /*
  * When running 32-on-64 we should make sure we can fit all of the possible
@@ -286,6 +300,134 @@ static void handle_arg_log_filename(const char *arg)
 {
     last_log_filename = arg;
 }
+
+#ifdef CANNOLI
+/*
+ * Handles the `--cannoli` command line argument, or the `QEMU_CANNOLI`
+ * environment variable. This is where we load up Cannoli. This can only be
+ * called once.
+ */
+static void handle_arg_cannoli(const char *arg)
+{
+    /* Initialize the Cannoli library */
+    void *cannoli_lib = dlopen(arg, RTLD_NOW);
+    if(!cannoli_lib) {
+        fprintf(stderr, "Cannoli: Failed to load library \"%s\"\n", dlerror());
+        exit(EXIT_FAILURE);
+    }
+
+    /* Get the entry point for Cannoli */
+    Cannoli* (*query_version)(const char*, int, size_t, size_t, size_t) =
+        dlsym(cannoli_lib, CANNOLI_ENTRY);
+    if(!query_version) {
+        fprintf(stderr, "Cannoli: Failed to get entry point \"%s\"\n",
+            dlerror());
+        exit(EXIT_FAILURE);
+    }
+
+    /* Determine the offset to GPRs and size of GPRs for this architecture in
+     * the `CPUArchState` structure (pointed to in the JIT by RBP)
+     */
+    size_t gpr_offset;
+    size_t gpr_width;
+    size_t num_gprs;
+
+    /* Create an arch state so we can get some offsets and sizes from it */
+    CPUArchState as;
+
+#ifdef TARGET_ALPHA
+    gpr_offset = offsetof(CPUArchState, ir);
+    gpr_width  = sizeof(as.ir[0]);
+    num_gprs   = sizeof(as.ir) / gpr_width;
+#endif /* TARGET_ALPHA */
+
+#ifdef TARGET_AARCH64
+    /* Idk if this is right, they might use the 32-bit regs in 32-bit mode when
+     * running on aarch64? Not sure. I don't think many Linux-user targets will
+     * use mixed modes anyways so we're probably fine
+     */
+    gpr_offset = offsetof(CPUArchState, xregs);
+    gpr_width  = sizeof(as.xregs[0]);
+    num_gprs   = sizeof(as.xregs) / gpr_width;
+#elif defined(TARGET_ARM)
+    gpr_offset = offsetof(CPUArchState, regs);
+    gpr_width  = sizeof(as.regs[0]);
+    num_gprs   = sizeof(as.regs) / gpr_width;
+#endif /* TARGET_AARCH64 */
+
+#ifdef TARGET_AVR
+    gpr_offset = offsetof(CPUArchState, r);
+    gpr_width  = sizeof(as.r[0]);
+    num_gprs   = sizeof(as.r) / gpr_width;
+#endif /* TARGET_AVR */
+
+#ifdef TARGET_HPPA
+    gpr_offset = offsetof(CPUArchState, gr);
+    gpr_width  = sizeof(as.gr[0]);
+    num_gprs   = sizeof(as.gr) / gpr_width;
+#endif /* TARGET_HPPA */
+
+#ifdef TARGET_M68K
+    gpr_offset = offsetof(CPUArchState, dregs);
+    gpr_width  = sizeof(as.dregs[0]);
+    num_gprs   = (sizeof(as.dregs) + sizeof(as.aregs)) / gpr_width;
+#endif /* TARGET_M68K */
+
+#ifdef TARGET_MIPS
+    gpr_offset = offsetof(CPUArchState, active_tc.gpr);
+    gpr_width  = sizeof(as.active_tc.gpr[0]);
+    num_gprs   = sizeof(as.active_tc.gpr) / gpr_width;
+#endif /* TARGET_MIPS */
+
+#ifdef TARGET_TRICORE
+    gpr_offset = offsetof(CPUArchState, gpr_a);
+    gpr_width  = sizeof(as.gpr_a[0]);
+    num_gprs   = (sizeof(as.gpr_a) + sizeof(as.gpr_d)) / gpr_width;
+#endif /* TARGET_TRICORE */
+
+#ifdef TARGET_OPENRISC
+    gpr_offset = offsetof(CPUArchState, shadow_gpr);
+    gpr_width  = sizeof(as.shadow_gpr[0]);
+    num_gprs   = sizeof(as.shadow_gpr) / gpr_width;
+#endif /* TARGET_OPENRISC */
+
+    /* All architectures that just use `CPUArchState->gregs` */
+#if defined(TARGET_SH4) || defined(TARGET_SPARC)
+    gpr_offset = offsetof(CPUArchState, gregs);
+    gpr_width  = sizeof(as.gregs[0]);
+    num_gprs   = sizeof(as.gregs) / gpr_width;
+#endif
+
+    /* All architectures that just use `CPUArchState->regs` */
+#if defined(TARGET_CRIS) || defined(TARGET_I386) || \
+        defined(TARGET_MICROBLAZE) || defined(TARGET_NIOS2) || \
+        defined(TARGET_RX) || defined(TARGET_S390X) || defined(TARGET_XTENSA)
+    gpr_offset = offsetof(CPUArchState, regs);
+    gpr_width  = sizeof(as.regs[0]);
+    num_gprs   = sizeof(as.regs) / gpr_width;
+#endif
+
+    /* All architectures that just use `CPUArchState->gpr` */
+#if defined(TARGET_HEXAGON) || defined(TARGET_LOONGARCH) || \
+        defined(TARGET_PPC) || defined(TARGET_RISCV)
+    gpr_offset = offsetof(CPUArchState, gpr);
+    gpr_width  = sizeof(as.gpr[0]);
+    num_gprs   = sizeof(as.gpr) / gpr_width;
+#endif /* TARGET_HEXAGON */
+
+    /* Query binding information */
+    cannoli = query_version(UNAME_MACHINE, TARGET_BIG_ENDIAN != 0,
+        gpr_offset, gpr_width, num_gprs);
+
+    /* Check version */
+    if(cannoli->version != CANNOLI_VERSION) {
+        fprintf(stderr, "Cannoli: Version mismatch, expected %" PRIx64
+            ", got %" PRIx64 "\n",
+            CANNOLI_VERSION, cannoli->version);
+        exit(EXIT_FAILURE);
+    }
+}
+#endif /* CANNOLI */
 
 static void handle_arg_set_env(const char *arg)
 {
@@ -501,6 +643,10 @@ static const struct qemu_argument arg_table[] = {
      "range[,...]","filter logging based on address range"},
     {"D",          "QEMU_LOG_FILENAME", true, handle_arg_log_filename,
      "logfile",     "write logs to 'logfile' (default stderr)"},
+#ifdef CANNOLI
+    {"cannoli",    "QEMU_CANNOLI" ,    true,  handle_arg_cannoli,
+     "cannoli.so", "Falk's Cannoli fast JIT hooks"},
+#endif
     {"p",          "QEMU_PAGESIZE",    true,  handle_arg_pagesize,
      "pagesize",   "deprecated change to host page size"},
     {"one-insn-per-tb",

@@ -139,9 +139,16 @@ typedef struct memory_content {
 } memory_content;
 
 typedef struct CPUArchState {
-    uint32_t flags;             /* general execution flags */
-    uint32_t gregs[24];         /* general registers */
-    float32 fregs[32];          /* floating point registers */
+#ifdef CONFIG_CANNOLI
+    /* Storage for Cannoli's internal register state */
+    uint64_t cannoli_r12;
+    uint64_t cannoli_r13;
+    uint64_t cannoli_r14;
+#endif
+
+    uint32_t flags;		/* general execution flags */
+    uint32_t gregs[24];		/* general registers */
+    float32 fregs[32];		/* floating point registers */
     uint32_t sr;                /* status register (with T split out) */
     uint32_t sr_m;              /* M bit of status register */
     uint32_t sr_q;              /* Q bit of status register */
